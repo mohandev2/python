@@ -1,125 +1,102 @@
-OpenHPI Python Extension (PyOpenHPI)
-====================================
 
-Description
------------
 
-An extension module that makes it possible to access
-HPI api functions and structures from the Python language.
+	How to install
+cd <this directory>
+./bootstrap
+./configure
+./make install
 
-It supports everything that is exposed through SaHpi.h,
-SaHpiAtca.h, SaHpiBladeCenter.h, oHpi.h, and oh_utils.h.
 
-Requirements
-------------
+        What is it?
 
-Python >= 2.3
-SWIG >= 1.3.27
-GLIB >= 2.2.0
-OpenHPI >= 2.10.0
+This is Python/C extention module to work with SAF HPI API structures and SAF HPI API like functions.
+Python 2.3 or higher is needed.
 
-Note: If any of these requirements are installed on non-standard
-directories (e.g. not in /usr or /usr/local) the extension will not build.
-In that case you will need to edit setup.py and deps.py to look for the
-dependencies in the right directories.
+To load this module just print in python:
 
-Building and Installing
------------------------
+>>> from ohpi import *
 
-To build:
+There is sample file:
+funcs - provides some python functions to show resource list, show domain info etc. 
 
-	make
+All HPI structures are represented by python classes with the same name, i.e if C structure is
 
-	- Or -
+typedef struct {
+	...........
+} SaHpiSensorRecT;
 
-	python setup.py build
+you can use in python class
+oh> sensorrec = SaHpiSensorRecT()
+python class members have the names of corresponding C structure members.
+You can write in python:
+>>> a = sensorrec.ThresholdDefn.IsAccessible
+>>> sensorrec.ThresholdDefn.IsAccessible = a
 
-To install:
 
-	make install # as root
 
-	- Or -
+The difference is in SaHpiTextBufferT handlig. Now only text DataType is supported
+>>> tb = SaHpiTextBufferT()
+>>> tb.Data = "new textbuffer data"
+>>> tb.Data
+'new textbuffer data'
+oh>   
+Assigning to the SaHpiTextBufferT Data field sets DataType and DataLength fields correspondingly.
+>>> tb.DataLength
+19
+>>> tb.DataType
+3
+>>>
 
-	python setup.py install # as root
+SaHpiEntityPathT fields of structures are represented by python typles of 2-members tuples (type, instance)
+for example:
+oh> saHpiSessionOpen(1)
+{'rv': 0, 'SessionId': 2}
+oh> ohpi.saHpiDiscover(2)
+0
+>>> rpt = SaHpiRptEntryT()
+>>> saHpiRptEntryGetByResourceId(2, 14, rpt)
+0
+>>> rpt.ResourceEntity
+((23, 3), (12, 1))
+>>>
+Asighning to SaHpiEntityPathT fields is not implemented
 
-Using
------
-To use, import the openhpi python extension like this:
+All enums and #defines are represented by python variables with the same names:
+>>> SA_OK
+0
 
-	from openhpi import *
+Functions described in SaHpi.h and oh_get_default_domain_id() are implemented.
+There is the distinction in representation of python functions and their C prototypes.
+If the function doesn't have integer class pointers arguments(SaHpi*IdT *, SAHPiTimeoutT *, ...)
+the representation of python function is identical to its C prototype, the fucnction has
+the same arguments and returns the integer error:
+oh> ohpi.saHpiDiscover(2)
+0
 
-Then, you will be able to call the HPI API functions as you would in C.
-All the APIs and HPI structs are managed as in C, except for
-two exceptions:
 
-	1. HPI structs are translated to objects in Python. Here
-	   are some examples on how to create HPI objects:
+If the C prototype has integer class pointers arguments, these arguments are ommited in function call
+but the function returns python dictionary. This dictionary has the member "rv", which is 
+the result of C prototype, and the integer members with the names of ommited C arguments as
+they described in SaHpi.h file:
+oh> ohpi.saHpiSessionOpen(1)
+{'rv': 0, 'SessionId': 2}
 
-	   	buffer = SaHpiTextBufferT()
-		print buffer.Data[3] # members are accessed like in C
-		print buffer.Data # This fetches the entire Data string
-		buffer.Language = SAHPI_LANG_ZULU
+Thre are some additional functions in ohpi module:
+1. And(a,b), Or(a,b), Not(a) implement bit logic operations on integers:
+>>> Or(8,6)
+14
+>>>
+2. StrTime(time) returns string representation of HPI time.
+oh> di.RptUpdateTimestamp
+1118046227809176000L
+oh> StrTime(di.RptUpdateTimestamp)
+'2005-06-06 12:23:47'
+>>>
 
-		res = SaHpiRptEntryT()
-		print res.ResourceEntity.Entry[4].EntityType
-		res.ResourceEntity.Entry[4].EntityType = SAHPI_ENT_SWITCH
+3. OpenHPI utilities functions oh_lookup_* are implemented as well.
 
-		dinfo = SaHpiDomainInfoT()
-		print dinfo.Guid[0] # prints first character of Guid
-		print dinfo.Guid # prints a string
-
-		dentry = SaHpiDrtEntryT()
-		dentry.IsPeer = SAHPI_TRUE
-
-	   Struct members that are character arrays (like
-	   SaHpiTextBufferT.Data) can be accessed as a whole string
-	   by referencing the plain array as shown above.
-
-	2. Any output argument of an HPI API call whose type is a
-	   pointer to a number (e.g. SaHpiSessionIdT *SessionId) gets
-	   treated differently for that API call. That argument will
-	   be eliminated and returned along with the error code. So
-	   for that API, a list of two values is returned. It is done
-	   like this because, although possible, its cumbersome to
-	   provide a reference to a number for a function call in
-	   Python. This helps improves readability, since all output
-	   variables end up on the left side of the assignment, and all
-	   the inputs end up as function arguments on the right side.
-	   Output arguments of type (char *) have also been moved to the
-	   left side of the equation.
-	   Following, some examples of this change:
-
-	   	error, sid = saHpiSessionOpen(SAHPI_UNSPECIFIED_DOMAIN_ID, None)
-		# if error == SA_OK, sid will contain the session id.
-		event = SaHpiEventT()
-		error, qstatus = saHpiEventGet(sid,
-					       SAHPI_TIMEOUT_IMMEDIATE,
-					       event, None, None)
-		# if error == SA_OK, qstatus contains the event queue status
-		# Also, event will have the returned event
-
-		# Printing the names of all plugins loaded
-		error = SA_OK; hid = 0;
-		while error == SA_OK:
-			error, hid = oHpiHandlerGetNext(hid)
-			hinfo = oHpiHandlerInfoT()
-			error = oHpiHandlerInfo(hid, hinfo)
-			if error == SA_OK:
-				print hinfo.plugin_name
-
-		# Creating a handler (instance to a plugin)
-		config = { 'plugin': 'libsimulator',
-			   'entity_root': '{SYSTEM_CHASSIS,1}',
-			   'name': 'test0' }
-		# First argument is a dictionary which the extension
-		# converts to the proper GHashTable type.
-		error, hid = oHpiHandlerCreate(config)
-		# returns id of new handler
-
-References
-----------
-
-All of the files ending in .i for this package can be used as a reference in order to learn how some api calls (among other things) have been mapped to Python.
-However, in order to understand those .i files another reference needs to be used:
-http://www.swig.org/Doc1.3/Contents.html (The SWIG 1.3 documentation)
+>>> oh_lookup_error(-1010)
+'INVALID_DATA'
+>>>
+  
 
